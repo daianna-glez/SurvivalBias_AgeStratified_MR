@@ -1,7 +1,6 @@
 #!/usr/bin/env Rscript
 
 library(tidyr, quietly = T, warn.conflicts = F)
-library(dplyr, quietly = T, warn.conflicts = F)
 library(ggplot2, quietly = T, warn.conflicts = F)
 library(cowplot, quietly = T, warn.conflicts = F)
 library(sessioninfo, quietly = T, warn.conflicts = F)
@@ -14,13 +13,13 @@ options(scipen = 0)
 #                   1. Run simulation replicates per subscenario 
 # ------------------------------------------------------------------------------
 #  This script takes a subscenario parameters and simulates individual level
-#  data across 500,000 individuals. It then selects survivors and 
-#  estimates G-X and G-Y to get an MR causal effect ratio estimate. 
-#  This is repeated 1000 times per subscenario.
+#  data across 500,000 individuals. It then selects "survivors" and 
+#  estimates the MR ratio estimate among all survivors and across equally 
+#  sized age strata. This is repeated 1,000 times per subscenario.
 # ______________________________________________________________________________
 
 ## Define dirs
-# setwd("/localhome/daianna/Stratified_MR_simulation")
+setwd("/home/dg745/SurvivalBias_AgeStratified_MR")
 input_dir <- paste(getwd(), "01_run_replicates_x_subscenario", "inputs", sep = "/")
 out_dir <- paste(getwd(), "01_run_replicates_x_subscenario", "outputs", sep = "/")
 plot_dir <- paste(getwd(), "01_run_replicates_x_subscenario", "plots", sep = "/")
@@ -41,13 +40,13 @@ source("helper_functions/simulate_error.R")
 source("helper_functions/simulate_exposure.R")
 source("helper_functions/simulate_outcome.R")
 source("helper_functions/simulate_survival_probability.R")
-# source("helper_functions/test_genetic_association.R")
 
 
-##########   Plotting functions (for internal use in script only)   ##########
+# ==============================================================================
+#  Plotting functions (for internal use in script only)
 
 # 1. Plot relationship between 2 variables with/without interaction
-plot_relationship <- function(data, x, y, interaction = F){
+plot_relationship <- function(data, x, y, coeffs, interaction = F){
  
    labels = c("G" = expression(G), 
               "U" = expression(U), 
@@ -59,6 +58,17 @@ plot_relationship <- function(data, x, y, interaction = F){
   
   data$G <- as.character(data$G)
   data$S <- as.character(data$S)
+  
+  alpha_G = coeffs["alpha_G"]
+  alpha_U = coeffs["alpha_U"]
+  beta_X = coeffs["beta_X"]
+  beta_A = coeffs["beta_A"]
+  beta_U = coeffs["beta_U"]
+  beta_XA = coeffs["beta_XA"]
+  gamma_X = coeffs["gamma_X"]
+  gamma_A = coeffs["gamma_A"]
+  gamma_XA = coeffs["gamma_XA"]
+  gamma_U = coeffs["gamma_U"]
 
   subt <- list("G_X" = bquote(alpha[G] == .(alpha_G)),
                 "U_X" = bquote(alpha[U] == .(alpha_U)),
@@ -76,7 +86,8 @@ plot_relationship <- function(data, x, y, interaction = F){
                  
                 "G_U" = bquote(beta[GU] == 0),
                 "G_A" = bquote(beta[GA] == 0),
-                "A_U" = bquote(beta[AU] == 0)
+                "A_U" = bquote(beta[AU] == 0),
+                "X_A" = bquote(beta[XA] == 0)
   )
     
   
@@ -105,8 +116,8 @@ plot_relationship <- function(data, x, y, interaction = F){
   
   else if(class(data[,y]) == "numeric" & class(data[,x]) == "numeric"){
     
-    ## Downsample 
-    down <- data[sample(seq(1:nrow(data)), 10000), ]
+    ## Downsample data
+    down <- data[sample(seq(1:nrow(data)), floor(dim(data)[1]*0.2)), ]
     
     if(interaction == F){
       p <- ggplot(down, aes(x = get(x), y = get(y))) + 
@@ -160,12 +171,15 @@ plot_distributions <- function(data, var, interaction = F){
   survivors <- subset(data, S == 1)
   
   df <- cbind(all, "who" = "all") %>% 
-    rbind(cbind(survivors, "who" = "survivors")) %>% 
-    rbind(cbind(subset(survivors, age_group == "30-40"), "who" = "survivors 30-40")) %>% 
-    rbind(cbind(subset(survivors, age_group == "40-50"), "who" = "survivors 40-50")) %>% 
-    rbind(cbind(subset(survivors, age_group == "50-60"), "who" = "survivors 50-60")) %>% 
-    rbind(cbind(subset(survivors, age_group == "60-70"), "who" = "survivors 60-70")) %>% 
-    rbind(cbind(subset(survivors, age_group == "70-80"), "who" = "survivors 70-80")) 
+    rbind(cbind(survivors, "who" = "survivors"))
+  
+  # Only add survivors in each age group if there were
+  for(grp in c("30-40", "40-50", "50-60", "60-70", "70-80")){
+    sub <- subset(survivors, age_group == grp)
+    if(nrow(sub) > 0){
+      df <- rbind(df, cbind(sub, "who" = paste("survivors", grp)))
+    }
+  }
   
   df$G = as.character(df$G)
   
@@ -184,7 +198,7 @@ plot_distributions <- function(data, var, interaction = F){
       theme_classic() +
       labs(x = "", y = labels[var], subtitle = paste(labels[var], "among survivors")) +
       theme(axis.title = element_text(size = 8),
-            axis.text = element_text(size = 7),
+            axis.text = element_text(size = 7, angle = 45, hjust = 1),
             axis.line = element_line(linewidth = 0.4),
             axis.ticks = element_line(linewidth = 0.3))
   }
@@ -196,7 +210,7 @@ plot_distributions <- function(data, var, interaction = F){
       theme_classic() +
       labs(x = "", y = labels[var], subtitle = paste(labels[var], "among survivors")) +
       theme(axis.title = element_text(size = 8),
-            axis.text = element_text(size = 7),
+            axis.text = element_text(size = 7, angle = 45, hjust = 1),
             axis.line = element_line(linewidth = 0.4),
             axis.ticks = element_line(linewidth = 0.3),
             strip.background = element_rect(fill = NA, color = NA))
@@ -209,7 +223,7 @@ plot_distributions <- function(data, var, interaction = F){
       theme_classic() +
       labs(x = "", y = labels[var], subtitle = paste(labels[var], "among survivors")) +
       theme(axis.title = element_text(size = 8),
-            axis.text = element_text(size = 7),
+            axis.text = element_text(size = 7, angle = 45, hjust = 1),
             axis.line = element_line(linewidth = 0.4),
             axis.ticks = element_line(linewidth = 0.3),
             strip.background = element_rect(fill = NA, color = NA))
@@ -233,7 +247,7 @@ plot_distributions <- function(data, var, interaction = F){
 }
 
 # 3. Plot relationship between 2 variables after selection
-plot_relationships_survivors <- function(data, x, y){
+plot_relationships_survivors <- function(data, x, y, coeffs){
   
   labels = c("G" = expression(G), 
              "U" = expression(U), 
@@ -245,6 +259,17 @@ plot_relationships_survivors <- function(data, x, y){
   
   data$G <- as.character(data$G)
   data$S <- as.character(data$S)
+  
+  alpha_G = coeffs["alpha_G"]
+  alpha_U = coeffs["alpha_U"]
+  beta_X = coeffs["beta_X"]
+  beta_A = coeffs["beta_A"]
+  beta_U = coeffs["beta_U"]
+  beta_XA = coeffs["beta_XA"]
+  gamma_X = coeffs["gamma_X"]
+  gamma_A = coeffs["gamma_A"]
+  gamma_XA = coeffs["gamma_XA"]
+  gamma_U = coeffs["gamma_U"]
   
   subt <- list("G_X" = bquote(alpha[G] == .(alpha_G)),
                "U_X" = bquote(alpha[U] == .(alpha_U)),
@@ -306,7 +331,7 @@ plot_relationships_survivors <- function(data, x, y){
 
 
 # ==============================================================================
-# Main simulation function:
+#  Main simulation function:
 N = 500000
 simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, sub_sce_varying_par_value, 
                        alpha_G, alpha_U, 
@@ -328,10 +353,12 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
                     "beta_U" = beta_U, "beta_A" = beta_A, "beta_X" = beta_X, "beta_XA" = beta_XA, 
                     "gamma_0" = gamma_0, "gamma_X" = gamma_X, "gamma_A" = gamma_A, "gamma_XA" = gamma_XA, "gamma_U" = gamma_U)
   
+  message(paste("Started simulation for replicate", replicate, "of subscenario:", 
+                main_scenario, main_scenario_val, sub_sce_varying_par, sub_sce_varying_par_value))
   
-  #  Step 1: Simulate genotype: G ~ Binom(2, q = 0.1)
+  #  Step 1: Simulate genotype: G ~ Binom(2, q = 0.3)
   # ___________________________________________________________________________
-  q = 0.1
+  q = 0.3
   G = simulate_genotype(N, q)
   indiv_data <- data.frame("G" = G)
   
@@ -345,7 +372,7 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   A = simulate_age(min_age = 30, max_age = 80, N = N)
   indiv_data <- cbind(indiv_data, "A" = A)
   ## Add age stratum indicator
-  indiv_data <- indiv_data %>% mutate(age_group = case_when(A >= 30 & A < 40 ~ "30-40",
+  indiv_data <- indiv_data %>% dplyr::mutate(age_group = dplyr::case_when(A >= 30 & A < 40 ~ "30-40",
                                                             A >= 40 & A < 50 ~ "40-50",
                                                             A >= 50 & A < 60 ~ "50-60",
                                                             A >= 60 & A < 70 ~ "60-70",
@@ -376,41 +403,70 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   probs = simulate_survival_probability(indiv_data, cols = c("X", "A", "U"), gamma_0, gamma_X, gamma_A, gamma_XA, gamma_U)
   indiv_data <- cbind(indiv_data, "p" = probs)
   
+  # Step 8: select surviors as those with p>0.5
+  # If not at least 1000 oldest selected, select up to Z including at least 1000 
+  indiv_data <- indiv_data %>% dplyr::arrange(-p) 
+  n_oldest <- length(which(indiv_data$age_group == "70-80" & indiv_data$p>0.5))
+  
+  if(n_oldest < 1000){
+    indiv_data <- indiv_data %>% dplyr::mutate(oldest = dplyr::case_when(age_group == "70-80" ~ 1, .default = 0)) %>% dplyr::mutate(sum = cumsum(oldest))
+    S = 1:dim(indiv_data)[1] <= which(indiv_data$sum == 1000)[1]
+    indiv_data <- cbind(indiv_data, "S" = S)
+  } else{
+    indiv_data <- indiv_data %>% dplyr::mutate(S = dplyr::case_when(p>0.5 ~ TRUE, .default = FALSE)) 
+  }
+
+  out$N_survivors <- table(S)["TRUE"]
+  out$min_p = min(subset(indiv_data, S == TRUE)$p)
+  
+  # Previous approach through Bernoulli trial:
   # Step 8: Generate selection indicator S ~ Bernoulli(p)
   # ___________________________________________________________________
-  S =  sapply(probs, function(p){rbinom(size = 1, prob = p, n = 1)}) 
-  table(S)
-  out$N_survivors <- table(S)["1"]
-  
-  indiv_data <- cbind(indiv_data, "S" = S)
+  # S =  sapply(probs, function(p){rbinom(size = 1, prob = p, n = 1)}) 
+  # table(S)
+  # out$N_survivors <- table(S)["1"]
+  # 
+  # indiv_data <- cbind(indiv_data, "S" = S)
   
   # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
   #             !!!  Sanity check plots  !!!
   # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
   plot_file = paste0(plot_dir_sc, "/effects_before_and_after_selection.pdf")
-  if(replicate == 1 & !file.exists(plot_file)){
-    
-    ## Plot G-X, U-X, G-Y, X-Y, A-Y, U-Y, XA-Y in whole population
-    p1 <- plot_relationship(indiv_data, "G", "X")
-    p2 <- plot_relationship(indiv_data, "U", "X")
-    p3 <- plot_relationship(indiv_data, "G", "Y")
-    p4 <- plot_relationship(indiv_data, "X", "Y")
-    p5 <- plot_relationship(indiv_data, "X", "Y", interaction = T)
-    p6 <- plot_relationship(indiv_data, "A", "Y")
-    p7 <- plot_relationship(indiv_data, "U", "Y")
-    
-    ## Plot effects on surviving probability
-    p8 <- plot_relationship(indiv_data, "S", "p")
-    p9 <- plot_relationship(indiv_data, "X", "p")
-    p10 <- plot_relationship(indiv_data, "X", "p", interaction = T)
-    p11 <- plot_relationship(indiv_data, "A", "p")
-    p12 <- plot_relationship(indiv_data, "U", "p")
-    
-    ## Compare variables in whole population vs survivors
-    p13 <- plot_distributions(indiv_data, var = "X")
-    p14 <- plot_distributions(indiv_data, var = "A")
-    p15 <- plot_distributions(indiv_data, var = "U")
-    p16 <- plot_distributions(indiv_data, var = "G")
+  if(replicate == 1){
+    if(!file.exists(plot_file)){
+      coeffs <- c("alpha_G" = alpha_G,
+                  "alpha_U" = alpha_U,
+                  "beta_X" = beta_X,
+                  "beta_A" = beta_A,
+                  "beta_U" = beta_U,
+                  "beta_XA" = beta_XA,
+                  "gamma_X" = gamma_X,
+                  "gamma_A" = gamma_A,
+                  "gamma_XA" = gamma_XA,
+                  "gamma_U" = gamma_U)
+      
+      ## Plot G-X, U-X, G-Y, X-Y, A-Y, U-Y, XA-Y in whole population
+      p1 <- plot_relationship(indiv_data, "G", "X", coeffs)
+      p2 <- plot_relationship(indiv_data, "U", "X", coeffs)
+      p3 <- plot_relationship(indiv_data, "G", "Y", coeffs)
+      p4 <- plot_relationship(indiv_data, "X", "Y", coeffs)
+      p5 <- plot_relationship(indiv_data, "X", "Y", coeffs, interaction = T)
+      p6 <- plot_relationship(indiv_data, "A", "Y", coeffs)
+      p7 <- plot_relationship(indiv_data, "U", "Y", coeffs)
+      
+      ## Plot effects on surviving probability
+      p8 <- plot_relationship(indiv_data, "S", "p", coeffs)
+      p9 <- plot_relationship(indiv_data, "X", "p", coeffs)
+      p10 <- plot_relationship(indiv_data, "X", "p", coeffs, interaction = T)
+      p11 <- plot_relationship(indiv_data, "A", "p", coeffs)
+      p12 <- plot_relationship(indiv_data, "U", "p", coeffs)
+      
+      ## Compare variables in whole population vs survivors
+      p13 <- plot_distributions(indiv_data, var = "X")
+      p14 <- plot_distributions(indiv_data, var = "A")
+      p15 <- plot_distributions(indiv_data, var = "U")
+      p16 <- plot_distributions(indiv_data, var = "G")
+    }    
   }
 
   # Step 9: Sample from survivors across ages
@@ -418,22 +474,22 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   survivors <- subset(indiv_data, S == 1)
   ages <- c("30-40", "40-50", "50-60", "60-70", "70-80")
   for(group in ages){
-    out[, paste0("N_survivors_", gsub("-", "_", group))] <- table(survivors$age_group)[group]
+    out[, paste0("N_survivors_", gsub("-", "_", group))] <-  table(factor(survivors$age_group, levels = ages))[group]
   }
     
-  ## Sample equal numbers of survivors across age groups
+  ## Randomly sample equal numbers of survivors across age groups
   sampled <- survivors %>%
-    group_by(age_group) %>%
-    slice_sample(n = min(table(survivors$age_group))) %>% as.data.frame()
+    dplyr::group_by(age_group) %>%
+    dplyr::slice_sample(n = min(table(survivors$age_group))) %>% as.data.frame()
   
   ## Num of indiv per age group
   out$N_survivors_sampled <- dim(sampled)[1]
   for(group in ages){
-    out[, paste0("N_survivors_sampled_", gsub("-", "_", group))] <- table(sampled$age_group)[group] 
+    out[, paste0("N_survivors_sampled_", gsub("-", "_", group))] <- table(factor(sampled$age_group, levels = ages))[group] 
   }
   
   ## Num of sampled indiv from each genotype
-  n <- table(factor(sampled$age_group, levels = unique(sampled$age_group)),
+  n <- table(factor(sampled$age_group, levels = ages),
              factor(sampled$G, levels = c(0:2)))
   for(group in ages){
 
@@ -442,20 +498,88 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
     out[, paste0("N_survivors_sampled_", gsub("-", "_", group), "_hom_ALT")] <- n[group, "2"]
   }
   
-  if(replicate == 1 & !file.exists(plot_file)){
-    p17 <- plot_relationships_survivors(sampled, "X", "Y")
-    p18 <- plot_relationships_survivors(sampled, "G", "U")
-    p19 <- plot_relationships_survivors(sampled, "G", "A")
-    p20 <- plot_relationships_survivors(sampled, "A", "U")
-    
-    plots <- list(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10,
-                  p11, p12, p13, p14, p15, p16, p17, p18, p19, p20)
-    plot_grid(plotlist = plots, ncol = 5)
-    ggsave(filename = paste0(plot_dir_sc, "/effects_before_and_after_selection.pdf"), width = 15, height = 10)
+  ## MAF overall
+  out[, "MAF_sampled"] <- ((2*table(factor(sampled$G, levels = c(0:2)))["2"]) + table(factor(sampled$G, levels = c(0:2)))["1"]) / (2*dim(sampled)[1])
+  
+  ## MAF in each group
+  for(group in ages){
+    out[, paste0("MAF_sampled_", gsub("-", "_", group))] <- ((2*n[group, "2"]) + n[group, "1"])/ (2*sum(n[group, ]))
   }
-
-  # Step 10: Estimate causal effect among sampled survivors
+  
+  # Step 10: Estimate induced G-U, G-A, A-U, X-A associations among sampled survivors ("conditioning on S")
   # ___________________________________________________________________
+  k = 1
+  plots <- list()
+  ## MAF among survivors
+  for(group in c("all", "survivors", "sampled", paste0("sampled_", gsub("-", "_", ages)))){
+  
+    if(group == "all"){data = indiv_data}
+    else if(group == "survivors"){data = survivors} 
+    else if(group == "sampled"){data = sampled}
+    else if(group == "sampled_30_40"){data = subset(sampled, age_group == "30-40")}
+    else if(group == "sampled_40_50"){data = subset(sampled, age_group == "40-50")}
+    else if(group == "sampled_50_60"){data = subset(sampled, age_group == "50-60")}
+    else if(group == "sampled_60_70"){data = subset(sampled, age_group == "60-70")}
+    else if(group == "sampled_70_80"){data = subset(sampled, age_group == "70-80")}
+    
+    out[, paste0("beta_GU_", group)] <- summary(lm(U ~ G, data))$coefficients["G",]["Estimate"]
+    out[, paste0("se_GU_", group)] <- summary(lm(U ~ G, data))$coefficients["G",]["Std. Error"]
+    out[, paste0("t_GU_", group)] <- summary(lm(U ~ G, data))$coefficients["G",]["t value"]
+    out[, paste0("p_GU_", group)] <- summary(lm(U ~ G, data))$coefficients["G",]["Pr(>|t|)"]
+    
+    out[, paste0("beta_GA_", group)] <- summary(lm(A ~ G, data))$coefficients["G",]["Estimate"]
+    out[, paste0("se_GA_", group)] <- summary(lm(A ~ G, data))$coefficients["G",]["Std. Error"]
+    out[, paste0("t_GA_", group)] <- summary(lm(A ~ G, data))$coefficients["G",]["t value"]
+    out[, paste0("p_GA_", group)] <- summary(lm(A ~ G, data))$coefficients["G",]["Pr(>|t|)"]
+    
+    out[, paste0("beta_AU_", group)] <- summary(lm(A ~ U, data))$coefficients["U",]["Estimate"]
+    out[, paste0("se_AU_", group)] <- summary(lm(A ~ U, data))$coefficients["U",]["Std. Error"]
+    out[, paste0("t_AU_", group)] <- summary(lm(A ~ U, data))$coefficients["U",]["t value"]
+    out[, paste0("p_AU_", group)] <- summary(lm(A ~ U, data))$coefficients["U",]["Pr(>|t|)"]
+    
+    out[, paste0("beta_XA_", group)] <- summary(lm(X ~ A, data))$coefficients["A",]["Estimate"]
+    out[, paste0("se_XA_", group)] <- summary(lm(X ~ A, data))$coefficients["A",]["Std. Error"]
+    out[, paste0("t_XA_", group)] <- summary(lm(X ~ A, data))$coefficients["A",]["t value"]
+    out[, paste0("p_XA_", group)] <- summary(lm(X ~ A, data))$coefficients["A",]["Pr(>|t|)"]
+   
+    ## Plot associations per group
+    plots[[k]] <- plot_relationship(data, "G", "U", coeffs)
+    plots[[k+1]] <- plot_relationship(data, "G", "A", coeffs)
+    plots[[k+2]] <- plot_relationship(data, "A", "U", coeffs)
+    plots[[k+3]] <- plot_relationship(data, "A", "X", coeffs)
+
+    k = k + 4
+  }
+  
+  ## Plot associations per group
+  plot_file2 = paste0(plot_dir_sc, "/collider_effects_before_and_after_selection_and_sampling.pdf")
+  if(replicate == 1){
+    if(!file.exists(plot_file2)){
+      plot_grid(plotlist = plots, align = "vh", ncol = 4, 
+                labels = sapply(c("whole population", "survivors", "sampled", paste0("sampled_", gsub("-", "_", ages))), 
+                                function(x){c(x, NA, NA, NA)}) %>% as.vector(),
+                label_size = 10, label_x = 0, label_y = 1)
+      ggsave(filename = plot_file2, width = 20, height = 24)
+    }
+  }
+  
+  
+  
+  # Step 11: Estimate causal effect among sampled survivors
+  # ___________________________________________________________________
+  ## Plot X-Y association per age group
+  if(replicate == 1){
+    if(!file.exists(plot_file)){
+      p17 <- plot_relationships_survivors(sampled, "G", "X", coeffs)
+      p18 <- plot_relationships_survivors(sampled, "G", "Y", coeffs)
+      p19 <- plot_relationships_survivors(sampled, "X", "Y", coeffs)
+      plots <- list(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10,
+                    p11, p12, p13, p14, p15, p16, p17, p18, p19)
+      plot_grid(plotlist = plots, ncol = 5)
+      ggsave(filename = paste0(plot_dir_sc, "/effects_before_and_after_selection.pdf"), width = 26, height = 10)
+    }
+  }
+  
   for(group in c("all", ages)){
     
     if(group == "all"){
@@ -464,41 +588,26 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
       data = subset(sampled, age_group == group)
     }
     ## Overall effect 
-    if(var(data$G) != 0){
-      
-      beta_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Estimate"]
-      se_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Std. Error"]
-      t_GX <- summary(lm(X ~ G, data))$coefficients["G",]["t value"]
-      p_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Pr(>|t|)"]
-      
-      beta_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Estimate"]
-      se_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Std. Error"]
-      t_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["t value"]
-      p_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Pr(>|t|)"]
-      
-      ## Ratio estimate, se, Z and p
-      beta_XY <- beta_GY / beta_GX
-      se_XY <- se_GY / abs(beta_GX)
-      z_XY <- beta_XY / se_XY
-      p_XY <- 2 * pnorm(-abs(z_XY))
-      
-    } else{
-      
-      beta_GX <- NA
-      se_GX <- NA
-      t_GX <- NA
-      p_GX <- NA
-      
-      beta_GY <- NA
-      se_GY <- NA
-      t_GY <- NA
-      p_GY <- NA
-      
-      beta_XY <- NA
-      se_XY <- NA
-      z_XY <- NA
-      p_XY <- NA
-    }
+    if(!var(data$G) %in% c(NA, 0)){
+        beta_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Estimate"]
+        se_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Std. Error"]
+        t_GX <- summary(lm(X ~ G, data))$coefficients["G",]["t value"]
+        p_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Pr(>|t|)"]
+        
+        beta_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Estimate"]
+        se_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Std. Error"]
+        t_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["t value"]
+        p_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Pr(>|t|)"]
+        
+        ## Ratio estimate, se, Z and p
+        beta_XY <- beta_GY / beta_GX
+        se_XY <- se_GY / abs(beta_GX)
+        z_XY <- beta_XY / se_XY
+        p_XY <- 2 * pnorm(-abs(z_XY))
+      } 
+      else{
+        message("No variation in G.")
+      }
     
     out[, paste0("beta_GX_sampled_", gsub("-", "_", group))] <- beta_GX
     out[, paste0("se_GX_sampled_", gsub("-", "_", group))] <- se_GX
@@ -537,31 +646,57 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   out$Q = Q
   out$p_het = p_het
 
+  message(paste("Finished simulation for replicate", replicate, "of subscenario:", 
+                main_scenario, main_scenario_val, sub_sce_varying_par, sub_sce_varying_par_value))
+  
   return(out)
 }
 
 
 
-# ---------------   Main script   ---------------  
-## (uncomment according to main scenario simulations run)
+# ==============================================================================
+# Run simulation replicates x subscenario: 
 
-## Scenario 1
-scenarios <- get(load(paste0(input_dir00, "/scenario.01.Rdata")))
+## Run for task ID (= subscenario row num)
+id <- commandArgs(trailingOnly = TRUE)[1]
+main <- commandArgs(trailingOnly = TRUE)[2]
+# id = 2
 
-## Scenario 2
-# scenarios <- get(load(paste0(input_dir00, "/scenario.02.Rdata")))
+## Main scenario subscenarios:
+if(main == "scenario.01"){
+  ## Scenario 1
+  scenarios <- get(load(paste0(input_dir00, "/scenario.01.Rdata")))
+} else if(main == "scenario.02"){
+   ## Scenario 2
+  scenarios <- get(load(paste0(input_dir00, "/scenario.02.Rdata")))
+} else if(main == "scenario.03"){
+  ## Scenario 3
+  scenarios <- get(load(paste0(input_dir00, "/scenario.03.Rdata")))
+} else if(main == "scenario.04"){
+  ## Scenario 4
+  scenarios <- get(load(paste0(input_dir00, "/scenario.04.Rdata")))
+}
 
-
-## 1000 replicates x scenario
-n_rep = 100
-
-## Run for task ID (= scenario row num)
-id <- commandArgs(trailingOnly = TRUE)
-id = 1
+## Subscenario pars
 sim_args <- scenarios[id, ]
 
-## Scenario outs 
+## 1000 replicates x scenario
+n_rep = 5
+
+
+## Dir to save subscenario results 
 out_dir_sc <- paste0(out_dir, "/", sim_args[1], "/", sim_args[2], "/", sim_args[3],  "/", sim_args[4])
+
+## Run n_rep replicates
+res = vector()
+for(i in 1:n_rep){
+  res = rbind(res, do.call(simulation, c(sim_args, i)))
+}
+
+## Save subscenario results 
+save(res, file = paste0(out_dir_sc, "/subscenario_res_across_", n_rep, "replicates.Rdata"))
+
+
 
 ## Skip if 100 replicates were run already for scenario
 # if("scenario_res_across_100replicates.Rdata" %in% list.files(out_dir_sc) & length(list.files(out_dir_sc)) >100){
@@ -577,34 +712,32 @@ out_dir_sc <- paste0(out_dir, "/", sim_args[1], "/", sim_args[2], "/", sim_args[
 #   save(scenario_res, file = paste0(out_dir_sc, "/scenario_res_across_", n_rep, "replicates.Rdata"))
 # }
 
-scenario_res = vector()
-for(i in 1:n_rep){
-  scenario_res = rbind(scenario_res, do.call(simulation, c(sim_args, i)))
-}
-
-## Save scenario results across replicates
-save(scenario_res, file = paste0(out_dir_sc, "/scenario_res_across_", n_rep, "replicates.Rdata"))
-
-
 
 ## Example test:
 
-# main_scenario = sim_args$main_scenario
-# main_scenario_val = sim_args$main_scenario_val
-# sub_sce_varying_par = sim_args$sub_sce_varying_par
-# sub_sce_varying_par_value = sim_args$sub_sce_varying_par_value
-# alpha_G = sim_args$alpha_G
-# alpha_U = sim_args$alpha_U
-# beta_U = sim_args$beta_U
-# beta_A = sim_args$beta_A
-# beta_X = sim_args$beta_X
-# beta_XA = sim_args$beta_XA
-# gamma_0 = sim_args$gamma_0
-# gamma_X = sim_args$gamma_X
-# gamma_A = sim_args$gamma_A
-# gamma_XA = sim_args$gamma_XA
-# gamma_U = sim_args$gamma_U
-# replicate = 1
+# gamma_0  =  2      # baseline survival — controls overall survival rate
+# gamma_X  = -0.1    # higher X → lower survival (negative as intended)
+# gamma_A  = -0.05   # older → lower survival (per year, so -0.05 * 50yrs = -2.5 logit units)
+# gamma_XA = -0.1    # interaction: effect of X on survival stronger at older ages
+# gamma_U  =  -0.1    # confounder effect
+
+#
+main_scenario = sim_args$main_scenario
+main_scenario_val = sim_args$main_scenario_val
+sub_sce_varying_par = sim_args$sub_sce_varying_par
+sub_sce_varying_par_value = sim_args$sub_sce_varying_par_value
+alpha_G = sim_args$alpha_G
+alpha_U = sim_args$alpha_U
+beta_U = sim_args$beta_U
+beta_A = sim_args$beta_A
+beta_X = sim_args$beta_X
+beta_XA = sim_args$beta_XA
+gamma_0 = sim_args$gamma_0
+gamma_X = sim_args$gamma_X
+gamma_A = sim_args$gamma_A
+gamma_XA = sim_args$gamma_XA
+gamma_U = sim_args$gamma_U
+replicate = 1
 
 
 
