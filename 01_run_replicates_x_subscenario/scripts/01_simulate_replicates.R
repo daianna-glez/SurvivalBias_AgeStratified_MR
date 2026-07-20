@@ -506,7 +506,7 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
     out[, paste0("MAF_sampled_", gsub("-", "_", group))] <- ((2*n[group, "2"]) + n[group, "1"])/ (2*sum(n[group, ]))
   }
   
-  # Step 10: Estimate induced G-U, G-A, A-U, X-A associations among sampled survivors ("conditioning on S")
+  # Step 10: Estimate induced G-U, G-A, A-U, X-A associations among survivors ("conditioning on S")
   # ___________________________________________________________________
   k = 1
   plots <- list()
@@ -562,7 +562,6 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
       ggsave(filename = plot_file2, width = 20, height = 24)
     }
   }
-  
   
   
   # Step 11: Estimate causal effect among sampled survivors
@@ -681,7 +680,7 @@ if(main == "scenario.01"){
 sim_args <- scenarios[id, ]
 
 ## 1000 replicates x scenario
-n_rep = 5
+n_rep = 1000
 
 
 ## Dir to save subscenario results 
