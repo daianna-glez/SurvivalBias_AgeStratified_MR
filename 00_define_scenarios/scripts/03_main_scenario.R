@@ -37,7 +37,7 @@ for(beta_XA in beta_XAs){
 }
 
 scenarios03$main_scenario = "scenario.03"
-scenarios03$main_scenario_val = scenarios03$beta_XA
+scenarios03$main_scenario_val = paste0("betaX=", scenarios03$beta_X, ",betaXA=", scenarios03$beta_XA)
 
 scenarios03[, 5:15] <- apply(scenarios03[, 5:15] , 2, as.numeric)
 save(scenarios03, file = paste0(out_dir, "/scenario.03.Rdata"))
