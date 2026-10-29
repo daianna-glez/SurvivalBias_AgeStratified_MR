@@ -26,27 +26,37 @@ dir.create(plot_dir, showWarnings = F)
 
 ## Input dirs
 input_dir00 <- paste(getwd(), "00_define_scenarios", "outputs", sep = "/")
-input_dir01 <- paste(getwd(), "01_run_replicates_x_subscenario", "outputs", sep = "/")
+input_dir01 <- paste(getwd(), "..", "rds",  "hpc-work", "SurvivalBias_AgeStratified_MR", 
+                     "01_run_replicates_x_subscenario", "outputs", sep = "/")
 
 
 ## Scenarios
-all_scenarios <- get(load(paste0(input_dir00, "/scenario.01.Rdata")))[1:5, ]
-# all_scenarios <- get(load(paste0(input_dir00, "/scenario.01.Rdata")))[1881:2632,]
+# all_scenarios <- get(load(paste0(input_dir00, "/scenario.01.Rdata")))
+all_scenarios <- get(load(paste0(input_dir00, "/scenario.03.Rdata")))
 scenarios <- all_scenarios[, c("main_scenario", "main_scenario_val", "sub_sce_varying_par")] %>% unique()
 subscenarios <- all_scenarios[, c("main_scenario", "main_scenario_val", "sub_sce_varying_par","sub_sce_varying_par_value")]
 
-
 ## Confirm res file x subscenario first
+for(j in 1:nrow(subscenarios)){
+  
+  sub_sce = subscenarios[j,]
+  scenario_path <- paste(sub_sce, collapse = "/")
+  res_file <- paste(c(input_dir01, scenario_path, "subscenario_res_across_1000replicates.Rdata"), collapse = "/")
+  
+  if(!file.exists(res_file)){
+    print(j)
+  }
+}
+
+
+## Confirm dim of res file x subscenario first
 for(j in 1:nrow(subscenarios)){
 
   sub_sce = subscenarios[j,]
   scenario_path <- paste(sub_sce, collapse = "/")
-  res <- get(load(paste(c(input_dir01, scenario_path, "subscenario_res_across_100replicates.Rdata"), collapse = "/")))
-  if(nrow(res)!= 100 | ncol(res) != 237){
-    print(ncol(res))
-  }
-  if(!"subscenario_res_across_100replicates.Rdata" %in% list.files(paste(c(input_dir01, scenario_path), collapse = "/"))){
-    print(j)
+  res <- get(load(paste(c(input_dir01, scenario_path, "subscenario_res_across_1000replicates.Rdata"), collapse = "/")))
+  if(nrow(res)!= 1000 | ncol(res) != 394){
+    print(c(j, ncol(res)))
   }
 }
 
@@ -63,7 +73,7 @@ for(j in 1:nrow(subscenarios)){
   scenario_path <- paste(sub_sce, collapse = "/")
   
   ## Extract results across replicates 
-  res <- get(load(paste(c(input_dir01, scenario_path, "subscenario_res_across_100replicates.Rdata"), collapse = "/")))
+  res <- get(load(paste(c(input_dir01, scenario_path, "subscenario_res_across_1000replicates.Rdata"), collapse = "/")))
   
   ## Append with other sub scenarios results
   all_res <- get(paste(c("all_res", sub_sce[-4]), collapse = "_"))
@@ -72,73 +82,119 @@ for(j in 1:nrow(subscenarios)){
   
   ## Compute summary metrics x subscenario across replicates
   subscenario_metrics <- with(res, 
+                                ## Mean initial population size 
+                              c("mean_N" = mean(N),
                                 ## Mean num of survivors 
-                              c("mean_N_survivors" = mean(N_survivors),
-                                ## Mean and median min p of survivors
-                                "mean_min_p" = mean(min_p),
-                                "median_min_p" = median(min_p),
-                                ## Mean num of survivors sampled 
-                                "mean_N_survivors_sampled" = mean(N_survivors_sampled),
-                                ## Mean MAF among sampled survivors
-                                "mean_MAF_sampled" = mean(MAF_sampled),
+                                "mean_N_survivors" = mean(N_survivors),
+                                ## Mean MAF among survivors
+                                "mean_MAF_survivors" = mean(MAF_survivors),
                                 ## Mean Q stat
                                 "mean_Q" = mean(Q),
+                                ## Positive rate for heterogeneity
+                                "PR_het" = mean(res$p_het < 0.05),
                                 ## Positive rate for interaction
-                                "PR_het" = mean(res$p_het < 0.05))
+                                "PR_interaction" = mean(res$p_XA_Y < 0.05))
                               )
   
   ## Num of ALT/ALT per sampled age group
   ## MAF among sampled per age group
-  ages <- c("sampled_30_40", "sampled_40_50", "sampled_50_60", "sampled_60_70", "sampled_70_80") 
+  ages <- c("survivors_1", "survivors_2", "survivors_3", "survivors_4", "survivors_5") 
   for(group in ages){
-    subscenario_metrics[paste0("mean_N_hom_ALT_", group)] <- signif(mean(res[, paste0("N_survivors_", group, "_hom_ALT")]), digits = 2)
+    subscenario_metrics[paste0("mean_N_", group, "_hom_ALT")] <- signif(mean(res[, paste0("N_", group, "_hom_ALT")]), digits = 2)
     subscenario_metrics[paste0("mean_MAF_", group)] <- signif(mean(res[, paste0("MAF_", group)]), digits = 2)
   }
   
   ## Add mean G-U, G-A, A-U, and A-X estimated effects among survivors and sampled survivors 
-  for(group in c("survivors", "sampled", ages)){
+  for(group in c("survivors", ages)){
     
     subscenario_metrics[paste0("mean_beta_GU_", group)] <- signif(mean(res[, paste0("beta_GU_", group)]), digits = 2)
     subscenario_metrics[paste0("median_beta_GU_", group)] <- signif(median(res[, paste0("beta_GU_", group)]), digits = 2)
     subscenario_metrics[paste0("sd_beta_GU_", group)] <- signif(sd(res[, paste0("beta_GU_", group)]), digits = 2)
+    subscenario_metrics[paste0("mean_se_GU_", group)] <- signif(mean(res[, paste0("se_GU_", group)]), digits = 2)
+    subscenario_metrics[paste0("median_se_GU_", group)] <- signif(median(res[, paste0("se_GU_", group)]), digits = 2)
     subscenario_metrics[paste0("PR_GU_", group)] = mean(res[, paste0("p_GU_", group)] < 0.05)
     
     subscenario_metrics[paste0("mean_beta_GA_", group)] <- signif(mean(res[, paste0("beta_GA_", group)]), digits = 2)
     subscenario_metrics[paste0("median_beta_GA_", group)] <- signif(median(res[, paste0("beta_GA_", group)]), digits = 2)
     subscenario_metrics[paste0("sd_beta_GA_", group)] <- signif(sd(res[, paste0("beta_GA_", group)]), digits = 2)
+    subscenario_metrics[paste0("mean_se_GA_", group)] <- signif(mean(res[, paste0("se_GA_", group)]), digits = 2)
+    subscenario_metrics[paste0("median_se_GA_", group)] <- signif(median(res[, paste0("se_GA_", group)]), digits = 2)
     subscenario_metrics[paste0("PR_GA_", group)] = mean(res[, paste0("p_GA_", group)] < 0.05)
     
     subscenario_metrics[paste0("mean_beta_AU_", group)] <- signif(mean(res[, paste0("beta_AU_", group)]), digits = 2)
     subscenario_metrics[paste0("median_beta_AU_", group)] <- signif(median(res[, paste0("beta_AU_", group)]), digits = 2)
     subscenario_metrics[paste0("sd_beta_AU_", group)] <- signif(sd(res[, paste0("beta_AU_", group)]), digits = 2)
+    subscenario_metrics[paste0("mean_se_AU_", group)] <- signif(mean(res[, paste0("se_AU_", group)]), digits = 2)
+    subscenario_metrics[paste0("median_se_AU_", group)] <- signif(median(res[, paste0("se_AU_", group)]), digits = 2)
     subscenario_metrics[paste0("PR_AU_", group)] = mean(res[, paste0("p_AU_", group)] < 0.05)
     
     subscenario_metrics[paste0("mean_beta_XA_", group)] <- signif(mean(res[, paste0("beta_XA_", group)]), digits = 2)
     subscenario_metrics[paste0("median_beta_XA_", group)] <- signif(median(res[, paste0("beta_XA_", group)]), digits = 2)
     subscenario_metrics[paste0("sd_beta_XA_", group)] <- signif(sd(res[, paste0("beta_XA_", group)]), digits = 2)
+    subscenario_metrics[paste0("mean_se_XA_", group)] <- signif(mean(res[, paste0("se_XA_", group)]), digits = 2)
+    subscenario_metrics[paste0("median_se_XA_", group)] <- signif(median(res[, paste0("se_XA_", group)]), digits = 2)
     subscenario_metrics[paste0("PR_XA_", group)] = mean(res[, paste0("p_XA_", group)] < 0.05)
   }
   
-  ## Add mean G-X, G-Y and X-Y estimated effects overall and per age group
-  strata <- c("all", "30_40", "40_50", "50_60", "60_70", "70_80") 
+  ## Add mean and median G-X, G-Y and X-Y estimated effects overall and per age group
+  ## Add mean and median F-statistic 
+  strata <- c("all", "survivors", ages) 
   for(group in strata){
 
-    subscenario_metrics[paste0("mean_beta_GX_sampled_", group)] = mean(res[, paste0("beta_GX_sampled_", group)], na.rm = T)
-    subscenario_metrics[paste0("median_beta_GX_sampled_", group)] = median(res[, paste0("beta_GX_sampled_", group)], na.rm = T)
-    subscenario_metrics[paste0("sd_beta_GX_sampled_", group)] = sd(res[, paste0("beta_GX_sampled_", group)], na.rm = T)
-
-    subscenario_metrics[paste0("mean_beta_GY_sampled_", group)] = mean(res[, paste0("beta_GY_sampled_", group)], na.rm = T)
-    subscenario_metrics[paste0("median_beta_GY_sampled_", group)] = median(res[, paste0("beta_GY_sampled_", group)], na.rm = T)
-    subscenario_metrics[paste0("sd_beta_GY_sampled_", group)] = sd(res[, paste0("beta_GY_sampled_", group)], na.rm = T)
+    subscenario_metrics[paste0("mean_beta_GX_", group)] = mean(res[, paste0("beta_GX_", group)], na.rm = T)
+    subscenario_metrics[paste0("median_beta_GX_", group)] = median(res[, paste0("beta_GX_", group)], na.rm = T)
+    subscenario_metrics[paste0("sd_beta_GX_", group)] = sd(res[, paste0("beta_GX_", group)], na.rm = T)
+    subscenario_metrics[paste0("PR_GX_", group)] = mean(res[, paste0("p_GX_", group)] < 0.05)
+    subscenario_metrics[paste0("mean_se_GX_", group)] = mean(res[, paste0("se_GX_", group)], na.rm = T)
+    subscenario_metrics[paste0("median_se_GX_", group)] = median(res[, paste0("se_GX_", group)], na.rm = T)
     
-    subscenario_metrics[paste0("mean_beta_XY_sampled_", group)] = mean(res[, paste0("beta_XY_sampled_", group)], na.rm = T)
-    subscenario_metrics[paste0("median_beta_XY_sampled_", group)] = median(res[, paste0("beta_XY_sampled_", group)], na.rm = T)
-    subscenario_metrics[paste0("sd_beta_XY_sampled_", group)] = sd(res[, paste0("beta_XY_sampled_", group)], na.rm = T)
+    subscenario_metrics[paste0("mean_Fstat_", group)] = mean(res[, paste0("Fstat_", group)], na.rm = T)
+    subscenario_metrics[paste0("median_Fstat_", group)] = median(res[, paste0("Fstat_", group)], na.rm = T)
+
+    subscenario_metrics[paste0("mean_beta_GY_", group)] = mean(res[, paste0("beta_GY_", group)], na.rm = T)
+    subscenario_metrics[paste0("median_beta_GY_", group)] = median(res[, paste0("beta_GY_", group)], na.rm = T)
+    subscenario_metrics[paste0("sd_beta_GY_", group)] = sd(res[, paste0("beta_GY_", group)], na.rm = T)
+    subscenario_metrics[paste0("PR_GY_", group)] = mean(res[, paste0("p_GY_", group)] < 0.05)
+    subscenario_metrics[paste0("mean_se_GY_", group)] = mean(res[, paste0("se_GY_", group)], na.rm = T)
+    subscenario_metrics[paste0("median_se_GY_", group)] = median(res[, paste0("se_GY_", group)], na.rm = T)
+    
+    
+    subscenario_metrics[paste0("mean_beta_XY_", group)] = mean(res[, paste0("beta_XY_", group)], na.rm = T)
+    subscenario_metrics[paste0("median_beta_XY_", group)] = median(res[, paste0("beta_XY_", group)], na.rm = T)
+    subscenario_metrics[paste0("sd_beta_XY_", group)] = sd(res[, paste0("beta_XY_", group)], na.rm = T)
+    subscenario_metrics[paste0("mean_se_XY_", group)] = mean(res[, paste0("se_XY_", group)], na.rm = T)
+    subscenario_metrics[paste0("median_se_XY_", group)] = median(res[, paste0("se_XY_", group)], na.rm = T)
     
     ## Positive rate for causal effect
-    subscenario_metrics[paste0("PR_XY_", group)] = mean(res[, paste0("p_XY_sampled_", group)] < 0.05)
+    subscenario_metrics[paste0("PR_XY_", group)] = mean(res[, paste0("p_XY_", group)] < 0.05)
     ## Negative rate for causal effect
-    subscenario_metrics[paste0("NR_XY_", group)]  = mean(res[, paste0("p_XY_sampled_", group)] >= 0.05)
+    subscenario_metrics[paste0("NR_XY_", group)]  = mean(res[, paste0("p_XY_", group)] >= 0.05)
+    
+  }
+  
+  ## Mean and median X,Y,A,U distribution metrics
+  for(variable in c("X", "Y", "U", "A")){
+  
+    subscenario_metrics[paste0("median_", variable, "_min_survivors_", 1:5)] <- apply(res[, paste0(variable, "_min_", 1:5)], 2, median) %>% as.vector()
+    subscenario_metrics[paste0("mean_", variable, "_min_survivors_", 1:5)] <- apply(res[, paste0(variable, "_min_", 1:5)], 2, mean) %>% as.vector()
+    
+    subscenario_metrics[paste0("median_", variable, "_max_survivors_", 1:5)] <- apply(res[, paste0(variable, "_max_", 1:5)], 2, median) %>% as.vector()
+    subscenario_metrics[paste0("mean_", variable, "_max_survivors_", 1:5)] <- apply(res[, paste0(variable, "_max_", 1:5)], 2, mean) %>% as.vector()
+    
+    subscenario_metrics[paste0("median_", variable, "_mean_survivors_", 1:5)] <- apply(res[, paste0(variable, "_mean_", 1:5)], 2, median) %>% as.vector()
+    subscenario_metrics[paste0("mean_", variable, "_mean_survivors_", 1:5)] <- apply(res[, paste0(variable, "_mean_", 1:5)], 2, mean) %>% as.vector()
+    
+    subscenario_metrics[paste0("median_", variable, "_var_survivors_", 1:5)] <- apply(res[, paste0(variable, "_var_", 1:5)], 2, median) %>% as.vector()
+    subscenario_metrics[paste0("mean_", variable, "_var_survivors_", 1:5)] <- apply(res[, paste0(variable, "_var_", 1:5)], 2, mean) %>% as.vector()
+    
+    subscenario_metrics[paste0("median_", variable, "_1st_quartile_survivors_", 1:5)] <- apply(res[, paste0(variable, "_1st_quartile_", 1:5)], 2, median) %>% as.vector()
+    subscenario_metrics[paste0("mean_", variable, "_1st_quartile_survivors_", 1:5)] <- apply(res[, paste0(variable, "_1st_quartile_", 1:5)], 2, mean) %>% as.vector()
+    
+    subscenario_metrics[paste0("median_", variable, "_2nd_quartile_survivors_", 1:5)] <- apply(res[, paste0(variable, "_2nd_quartile_", 1:5)], 2, median) %>% as.vector()
+    subscenario_metrics[paste0("mean_", variable, "_2nd_quartile_survivors_", 1:5)] <- apply(res[, paste0(variable, "_2nd_quartile_", 1:5)], 2, mean) %>% as.vector()
+    
+    subscenario_metrics[paste0("median_", variable, "_3rd_quartile_survivors_", 1:5)] <- apply(res[, paste0(variable, "_3rd_quartile_", 1:5)], 2, median) %>% as.vector()
+    subscenario_metrics[paste0("mean_", variable, "_3rd_quartile_survivors_", 1:5)] <- apply(res[, paste0(variable, "_3rd_quartile_", 1:5)], 2, mean) %>% as.vector()
   }
   
   save(subscenario_metrics, file = paste(c(input_dir01, scenario_path, "subscenario_summary_metrics.Rdata"), collapse = "/")) 
@@ -149,19 +205,20 @@ for(j in 1:nrow(subscenarios)){
                         "sub_sce_varying_par" = sub_sce$sub_sce_varying_par, 
                         "sub_sce_varying_par_value" = sub_sce$sub_sce_varying_par_value, 
                         t(subscenario_metrics))
+  
   all_metrics <- rbind(all_metrics, to_bind)
   assign(paste(c("all_metrics", sub_sce[-4]), collapse = "_"), all_metrics)
 }
 
 
-## Confirm 100 rep x num sub scenarios for each var par scenario agg
+## Confirm 1000 rep x num sub scenarios for each var-par scenario agg
 for(j in 1:nrow(scenarios)){
   num_sub <- all_scenarios %>% 
     dplyr::filter(main_scenario == scenarios[j,"main_scenario"], 
                   main_scenario_val == scenarios[j,"main_scenario_val"], 
                   sub_sce_varying_par == scenarios[j, "sub_sce_varying_par"]) %>% nrow()
   
-  if(nrow(get(paste(c("all_res", scenarios[j,]), collapse = "_"))) != num_sub*100){print(j)}
+  if(nrow(get(paste(c("all_res", scenarios[j,]), collapse = "_"))) != num_sub*1000){print(j)}
   if(nrow(get(paste(c("all_metrics", scenarios[j,]), collapse = "_"))) != num_sub){print(j)}
 }
 
