@@ -4,10 +4,8 @@ library(tidyr, quietly = T, warn.conflicts = F)
 library(ggplot2, quietly = T, warn.conflicts = F)
 library(cowplot, quietly = T, warn.conflicts = F)
 library(sessioninfo, quietly = T, warn.conflicts = F)
-
+library(metafor, quietly = T, warn.conflicts = F)
 rm(list = ls())
-set.seed(052226)
-options(scipen = 0)
 
 # ------------------------------------------------------------------------------
 #                   1. Run simulation replicates per subscenario 
@@ -18,11 +16,23 @@ options(scipen = 0)
 #  sized age strata. This is repeated 1,000 times per subscenario.
 # ______________________________________________________________________________
 
+## Run for task ID (= subscenario row num)
+id <- commandArgs(trailingOnly = TRUE)[1]
+main <- commandArgs(trailingOnly = TRUE)[2]
+# id = 2
+
+
+## Different seed across subscenarios, 
+## same seed across multiple runs of the same subscenario
+set.seed(052226 + as.numeric(id))
+options(scipen = 0)
+
+
 ## Define dirs
 setwd("/home/dg745/SurvivalBias_AgeStratified_MR")
 input_dir <- paste(getwd(), "01_run_replicates_x_subscenario", "inputs", sep = "/")
-out_dir <- paste(getwd(), "01_run_replicates_x_subscenario", "outputs", sep = "/")
-plot_dir <- paste(getwd(), "01_run_replicates_x_subscenario", "plots", sep = "/")
+out_dir <- paste("../rds/hpc-work/SurvivalBias_AgeStratified_MR", "01_run_replicates_x_subscenario", "outputs", sep = "/")
+plot_dir <- paste("../rds/hpc-work/SurvivalBias_AgeStratified_MR", "01_run_replicates_x_subscenario", "plots", sep = "/")
 
 dir.create(input_dir, showWarnings = F)
 dir.create(out_dir, showWarnings = F)
@@ -117,10 +127,12 @@ plot_relationship <- function(data, x, y, coeffs, interaction = F){
   else if(class(data[,y]) == "numeric" & class(data[,x]) == "numeric"){
     
     ## Downsample data
-    down <- data[sample(seq(1:nrow(data)), floor(dim(data)[1]*0.2)), ]
-    
+    if(nrow(data) >1000){
+      data <- data[sample(seq(1:nrow(data)), floor(dim(data)[1]*0.2)), ]
+    }
+
     if(interaction == F){
-      p <- ggplot(down, aes(x = get(x), y = get(y))) + 
+      p <- ggplot(data, aes(x = get(x), y = get(y))) + 
               geom_point(color='gray', alpha = 0.3, size = 1) +
               theme_classic() +
               labs(x = labels[x], y = labels[y], subtitle = subt[[paste(x, y, sep = "_")]]) +
@@ -138,7 +150,7 @@ plot_relationship <- function(data, x, y, coeffs, interaction = F){
 
     ## Interactions
     else{
-      p <-  ggplot(down, aes(x = get(x), y = get(y), color = age_group)) + 
+      p <-  ggplot(data, aes(x = get(x), y = get(y), color = age_group)) + 
         facet_grid(cols = vars(age_group)) +
         geom_point(alpha = 0.3, size = 1, color = "gray") +
         theme_classic() +
@@ -332,8 +344,7 @@ plot_relationships_survivors <- function(data, x, y, coeffs){
 
 # ==============================================================================
 #  Main simulation function:
-N = 500000
-simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, sub_sce_varying_par_value, 
+simulation <- function(N, main_scenario, main_scenario_val, sub_sce_varying_par, sub_sce_varying_par_value, 
                        alpha_G, alpha_U, 
                        beta_U, beta_A, beta_X, beta_XA, 
                        gamma_0, gamma_X, gamma_A, gamma_XA, gamma_U, 
@@ -348,7 +359,7 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   
   ## df to save results (and inputs)
   out <- data.frame("main_scenario" = main_scenario, "main_scenario_val" = main_scenario_val, "sub_sce_varying_par" = sub_sce_varying_par, "sub_sce_varying_par_value" = sub_sce_varying_par_value, 
-                    "replicate" = replicate, 
+                    "replicate" = replicate, "N" = N,
                     "alpha_G" = alpha_G, "alpha_U" = alpha_U, 
                     "beta_U" = beta_U, "beta_A" = beta_A, "beta_X" = beta_X, "beta_XA" = beta_XA, 
                     "gamma_0" = gamma_0, "gamma_X" = gamma_X, "gamma_A" = gamma_A, "gamma_XA" = gamma_XA, "gamma_U" = gamma_U)
@@ -371,13 +382,7 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   # ___________________________________________________________________
   A = simulate_age(min_age = 30, max_age = 80, N = N)
   indiv_data <- cbind(indiv_data, "A" = A)
-  ## Add age stratum indicator
-  indiv_data <- indiv_data %>% dplyr::mutate(age_group = dplyr::case_when(A >= 30 & A < 40 ~ "30-40",
-                                                            A >= 40 & A < 50 ~ "40-50",
-                                                            A >= 50 & A < 60 ~ "50-60",
-                                                            A >= 60 & A < 70 ~ "60-70",
-                                                            A >= 70 & A <= 80 ~ "70-80"))
-  table(indiv_data$age_group)
+
   
   # Step 4: Simulate error terms for X and Y:  εx,εʏ ~ N(0,1) 
   # ___________________________________________________________________
@@ -396,54 +401,122 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   # ___________________________________________________________________
   Y = simulate_outcome(indiv_data, cols = c("X", "A", "U", "eY"), beta_X, beta_A, beta_XA, beta_U)
   indiv_data <- cbind(indiv_data, "Y" = Y)
-  
+
   
   # Step 7: Generate selection p = 1 / 1 + e^-(γo + γxX + γA*A + γxA*XA + γuU)
   # ___________________________________________________________________
   probs = simulate_survival_probability(indiv_data, cols = c("X", "A", "U"), gamma_0, gamma_X, gamma_A, gamma_XA, gamma_U)
   indiv_data <- cbind(indiv_data, "p" = probs)
   
+  #-----------------------------------------------------------------------------
+  ## Previous approaches for selection:
+  
   # Step 8: select surviors as those with p>0.5
   # If not at least 1000 oldest selected, select up to Z including at least 1000 
-  indiv_data <- indiv_data %>% dplyr::arrange(-p) 
-  n_oldest <- length(which(indiv_data$age_group == "70-80" & indiv_data$p>0.5))
+  # indiv_data <- indiv_data %>% dplyr::arrange(-p) 
+  # n_oldest <- length(which(indiv_data$age_group == "70-80" & indiv_data$p>0.5))
+  # 
+  # if(n_oldest < 1000){
+  #   indiv_data <- indiv_data %>% dplyr::dplyr::mutate(oldest = dplyr::dplyr::case_when(age_group == "70-80" ~ 1, .default = 0)) %>% dplyr::dplyr::mutate(sum = cumsum(oldest))
+  #   S = 1:dim(indiv_data)[1] <= which(indiv_data$sum == 1000)[1]
+  #   indiv_data <- cbind(indiv_data, "S" = S)
+  # } else{
+  #   indiv_data <- indiv_data %>% dplyr::dplyr::mutate(S = dplyr::dplyr::case_when(p>0.5 ~ TRUE, .default = FALSE)) 
+  # }
+  # 
+  # out$N_survivors <- table(S)["TRUE"]
+  # out$min_p = min(subset(indiv_data, S == TRUE)$p)
   
-  if(n_oldest < 1000){
-    indiv_data <- indiv_data %>% dplyr::mutate(oldest = dplyr::case_when(age_group == "70-80" ~ 1, .default = 0)) %>% dplyr::mutate(sum = cumsum(oldest))
-    S = 1:dim(indiv_data)[1] <= which(indiv_data$sum == 1000)[1]
-    indiv_data <- cbind(indiv_data, "S" = S)
-  } else{
-    indiv_data <- indiv_data %>% dplyr::mutate(S = dplyr::case_when(p>0.5 ~ TRUE, .default = FALSE)) 
-  }
+  # Step 9: Random sample from survivors across ages
+  # ___________________________________________________________________
+  # ## Randomly sample equal numbers of survivors across age groups
+  # sampled <- survivors %>%
+  #   dplyr::group_by(age_group) %>%
+  #   dplyr::slice_sample(n = min(table(survivors$age_group))) %>% as.data.frame()
+  # 
+  # ## Num of indiv per age group
+  # out$N_survivors_sampled <- dim(sampled)[1]
+  # for(group in ages){
+  #   out[, paste0("N_survivors_sampled_", gsub("-", "_", group))] <- table(factor(sampled$age_group, levels = ages))[group] 
+  # }
 
-  out$N_survivors <- table(S)["TRUE"]
-  out$min_p = min(subset(indiv_data, S == TRUE)$p)
+  #-----------------------------------------------------------------------------
   
-  # Previous approach through Bernoulli trial:
   # Step 8: Generate selection indicator S ~ Bernoulli(p)
   # ___________________________________________________________________
-  # S =  sapply(probs, function(p){rbinom(size = 1, prob = p, n = 1)}) 
-  # table(S)
-  # out$N_survivors <- table(S)["1"]
-  # 
-  # indiv_data <- cbind(indiv_data, "S" = S)
+  S =  sapply(probs, function(p){rbinom(size = 1, prob = p, n = 1)})
+  table(S)
+  out$N_survivors <- table(S)["1"]
+  indiv_data <- cbind(indiv_data, "S" = S)
+  survivors <- subset(indiv_data, S == 1)
+  
+  ## Define age stratification variable 
+  indiv_data <- indiv_data %>% dplyr::mutate(age_group = dplyr::case_when(A <= quantile(survivors$A, probs = 0.20) ~ "1",
+                                                          A > quantile(survivors$A, probs = 0.20) & A <= quantile(survivors$A, probs = 0.4) ~ "2",
+                                                          A > quantile(survivors$A, probs = 0.4) & A <= quantile(survivors$A, probs = 0.6) ~ "3",
+                                                          A > quantile(survivors$A, probs = 0.6) & A <= quantile(survivors$A, probs = 0.8) ~ "4",
+                                                          A > quantile(survivors$A, probs = 0.8)  ~ "5"))
+  
+  survivors <- survivors %>% dplyr::mutate(age_group = dplyr::case_when(A <= quantile(survivors$A, probs = 0.20) ~ "1",
+                                                          A > quantile(survivors$A, probs = 0.20) & A <= quantile(survivors$A, probs = 0.4) ~ "2",
+                                                          A > quantile(survivors$A, probs = 0.4) & A <= quantile(survivors$A, probs = 0.6) ~ "3",
+                                                          A > quantile(survivors$A, probs = 0.6) & A <= quantile(survivors$A, probs = 0.8) ~ "4",
+                                                          A > quantile(survivors$A, probs = 0.8)  ~ "5"))
+  
+  for(group in 1:5){
+    out[, paste0("N_survivors_", group)] <-  table(factor(survivors$age_group, levels = 1:5))[group]
+  }
+  
+  
+  ## Num of survivors from each genotype
+  n <- table(factor(survivors$age_group, levels = 1:5),
+             factor(survivors$G, levels = c(0:2)))
+  
+  # ============================================================================
+  ## Stop if <200 survivors and/or no genotype variance exists across age strata (and rerun function with larger N)
+  if(table(S)["1"] < 200 | any(by(survivors$G, survivors$age_group, var) == 0)){
+    return(list("N_survivors" = table(S)["1"], 
+                "mean_p" = mean(probs),
+                "var_G" = as.vector(by(survivors$G, survivors$age_group, var))
+      )
+    )
+  }
+  # ============================================================================
+  
+  ## Continue othwerwise
+  for(group in 1:5){
+    
+    out[, paste0("N_survivors_", group, "_hom_REF")] <- n[group, "0"]
+    out[, paste0("N_survivors_", group, "_het")] <- n[group, "1"]
+    out[, paste0("N_survivors_", group, "_hom_ALT")] <- n[group, "2"]
+  }
+  
+  ## MAF among survivors
+  out[, "MAF_survivors"] <- ((2*table(factor(survivors$G, levels = c(0:2)))["2"]) + table(factor(survivors$G, levels = c(0:2)))["1"]) / (2*dim(survivors)[1])
+  
+  ## MAF in each age group
+  for(group in 1:5){
+    out[, paste0("MAF_survivors_", group)] <- ((2*n[group, "2"]) + n[group, "1"])/ (2*sum(n[group, ]))
+  }
+  
   
   # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
   #             !!!  Sanity check plots  !!!
   # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+  coeffs <- c("alpha_G" = alpha_G,
+              "alpha_U" = alpha_U,
+              "beta_X" = beta_X,
+              "beta_A" = beta_A,
+              "beta_U" = beta_U,
+              "beta_XA" = beta_XA,
+              "gamma_X" = gamma_X,
+              "gamma_A" = gamma_A,
+              "gamma_XA" = gamma_XA,
+              "gamma_U" = gamma_U)
+  
   plot_file = paste0(plot_dir_sc, "/effects_before_and_after_selection.pdf")
   if(replicate == 1){
     if(!file.exists(plot_file)){
-      coeffs <- c("alpha_G" = alpha_G,
-                  "alpha_U" = alpha_U,
-                  "beta_X" = beta_X,
-                  "beta_A" = beta_A,
-                  "beta_U" = beta_U,
-                  "beta_XA" = beta_XA,
-                  "gamma_X" = gamma_X,
-                  "gamma_A" = gamma_A,
-                  "gamma_XA" = gamma_XA,
-                  "gamma_U" = gamma_U)
       
       ## Plot G-X, U-X, G-Y, X-Y, A-Y, U-Y, XA-Y in whole population
       p1 <- plot_relationship(indiv_data, "G", "X", coeffs)
@@ -469,58 +542,32 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
     }    
   }
 
-  # Step 9: Sample from survivors across ages
-  # ___________________________________________________________________
-  survivors <- subset(indiv_data, S == 1)
-  ages <- c("30-40", "40-50", "50-60", "60-70", "70-80")
-  for(group in ages){
-    out[, paste0("N_survivors_", gsub("-", "_", group))] <-  table(factor(survivors$age_group, levels = ages))[group]
-  }
-    
-  ## Randomly sample equal numbers of survivors across age groups
-  sampled <- survivors %>%
-    dplyr::group_by(age_group) %>%
-    dplyr::slice_sample(n = min(table(survivors$age_group))) %>% as.data.frame()
-  
-  ## Num of indiv per age group
-  out$N_survivors_sampled <- dim(sampled)[1]
-  for(group in ages){
-    out[, paste0("N_survivors_sampled_", gsub("-", "_", group))] <- table(factor(sampled$age_group, levels = ages))[group] 
+  ## Variable distributions across age strata
+  for(variable in c("X", "Y", "U", "A")){
+    out[, paste0(variable, "_min_", 1:5)] <- by(survivors[, variable], survivors$age_group, min) %>% as.vector()
+    out[, paste0(variable, "_max_", 1:5)] <- by(survivors[, variable], survivors$age_group, max) %>% as.vector()
+    out[, paste0(variable, "_mean_", 1:5)] <- by(survivors[, variable], survivors$age_group, mean) %>% as.vector()
+    out[, paste0(variable, "_var_", 1:5)] <- by(survivors[, variable], survivors$age_group, var) %>% as.vector()
+    out[, paste0(variable, "_1st_quartile_", 1:5)] <- by(survivors[, variable], survivors$age_group, quantile, 0.25) %>% as.vector()
+    out[, paste0(variable, "_2nd_quartile_", 1:5)] <- by(survivors[, variable], survivors$age_group, quantile, 0.50) %>% as.vector()
+    out[, paste0(variable, "_3rd_quartile_", 1:5)] <- by(survivors[, variable], survivors$age_group, quantile, 0.75) %>% as.vector()
   }
   
-  ## Num of sampled indiv from each genotype
-  n <- table(factor(sampled$age_group, levels = ages),
-             factor(sampled$G, levels = c(0:2)))
-  for(group in ages){
-
-    out[, paste0("N_survivors_sampled_", gsub("-", "_", group), "_hom_REF")] <- n[group, "0"]
-    out[, paste0("N_survivors_sampled_", gsub("-", "_", group), "_het")] <- n[group, "1"]
-    out[, paste0("N_survivors_sampled_", gsub("-", "_", group), "_hom_ALT")] <- n[group, "2"]
-  }
   
-  ## MAF overall
-  out[, "MAF_sampled"] <- ((2*table(factor(sampled$G, levels = c(0:2)))["2"]) + table(factor(sampled$G, levels = c(0:2)))["1"]) / (2*dim(sampled)[1])
-  
-  ## MAF in each group
-  for(group in ages){
-    out[, paste0("MAF_sampled_", gsub("-", "_", group))] <- ((2*n[group, "2"]) + n[group, "1"])/ (2*sum(n[group, ]))
-  }
-  
-  # Step 10: Estimate induced G-U, G-A, A-U, X-A associations among survivors ("conditioning on S")
+  # Step 9: Estimate induced G-U, G-A, A-U, X-A associations among survivors ("conditioning on S")
   # ___________________________________________________________________
   k = 1
   plots <- list()
-  ## MAF among survivors
-  for(group in c("all", "survivors", "sampled", paste0("sampled_", gsub("-", "_", ages)))){
+  
+  for(group in c("all", "survivors", paste0("survivors_", 1:5))){
   
     if(group == "all"){data = indiv_data}
     else if(group == "survivors"){data = survivors} 
-    else if(group == "sampled"){data = sampled}
-    else if(group == "sampled_30_40"){data = subset(sampled, age_group == "30-40")}
-    else if(group == "sampled_40_50"){data = subset(sampled, age_group == "40-50")}
-    else if(group == "sampled_50_60"){data = subset(sampled, age_group == "50-60")}
-    else if(group == "sampled_60_70"){data = subset(sampled, age_group == "60-70")}
-    else if(group == "sampled_70_80"){data = subset(sampled, age_group == "70-80")}
+    else if(group == "survivors_1"){data = subset(survivors, age_group == "1")}
+    else if(group == "survivors_2"){data = subset(survivors, age_group == "2")}
+    else if(group == "survivors_3"){data = subset(survivors, age_group == "3")}
+    else if(group == "survivors_4"){data = subset(survivors, age_group == "4")}
+    else if(group == "survivors_5"){data = subset(survivors, age_group == "5")}
     
     out[, paste0("beta_GU_", group)] <- summary(lm(U ~ G, data))$coefficients["G",]["Estimate"]
     out[, paste0("se_GU_", group)] <- summary(lm(U ~ G, data))$coefficients["G",]["Std. Error"]
@@ -556,7 +603,7 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   if(replicate == 1){
     if(!file.exists(plot_file2)){
       plot_grid(plotlist = plots, align = "vh", ncol = 4, 
-                labels = sapply(c("whole population", "survivors", "sampled", paste0("sampled_", gsub("-", "_", ages))), 
+                labels = sapply(c("whole population", "survivors", paste0("survivors_", 1:5)), 
                                 function(x){c(x, NA, NA, NA)}) %>% as.vector(),
                 label_size = 10, label_x = 0, label_y = 1)
       ggsave(filename = plot_file2, width = 20, height = 24)
@@ -564,14 +611,14 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   }
   
   
-  # Step 11: Estimate causal effect among sampled survivors
+  # Step 10: Estimate causal effect among sampled survivors
   # ___________________________________________________________________
   ## Plot X-Y association per age group
   if(replicate == 1){
     if(!file.exists(plot_file)){
-      p17 <- plot_relationships_survivors(sampled, "G", "X", coeffs)
-      p18 <- plot_relationships_survivors(sampled, "G", "Y", coeffs)
-      p19 <- plot_relationships_survivors(sampled, "X", "Y", coeffs)
+      p17 <- plot_relationships_survivors(survivors, "G", "X", coeffs)
+      p18 <- plot_relationships_survivors(survivors, "G", "Y", coeffs)
+      p19 <- plot_relationships_survivors(survivors, "X", "Y", coeffs)
       plots <- list(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10,
                     p11, p12, p13, p14, p15, p16, p17, p18, p19)
       plot_grid(plotlist = plots, ncol = 5)
@@ -579,20 +626,29 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
     }
   }
   
-  for(group in c("all", ages)){
+  for(group in c("all", "survivors", paste0("survivors_", 1:5))){
     
     if(group == "all"){
-      data = sampled
+      data = indiv_data
+    } else if(group == "survivors"){
+      data = survivors
     } else{
-      data = subset(sampled, age_group == group)
+      data = subset(survivors, age_group == gsub("^.*_", "", group))
     }
     ## Overall effect 
     if(!var(data$G) %in% c(NA, 0)){
-        beta_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Estimate"]
-        se_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Std. Error"]
-        t_GX <- summary(lm(X ~ G, data))$coefficients["G",]["t value"]
-        p_GX <- summary(lm(X ~ G, data))$coefficients["G",]["Pr(>|t|)"]
+      
+        ## G-X association
+        fit <- summary(lm(X ~ G, data))
+        beta_GX <- fit$coefficients["G",]["Estimate"]
+        se_GX <- fit$coefficients["G",]["Std. Error"]
+        t_GX <- fit$coefficients["G",]["t value"]
+        p_GX <- fit$coefficients["G",]["Pr(>|t|)"]
         
+        ## Instrument strength
+        Fstat <- fit$fstatistic["value"]
+        
+        ## G-Y association
         beta_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Estimate"]
         se_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["Std. Error"]
         t_GY <- summary(lm(Y ~ G, data))$coefficients["G",]["t value"]
@@ -606,31 +662,63 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
       } 
       else{
         message("No variation in G.")
+        stop()
       }
     
-    out[, paste0("beta_GX_sampled_", gsub("-", "_", group))] <- beta_GX
-    out[, paste0("se_GX_sampled_", gsub("-", "_", group))] <- se_GX
-    out[, paste0("t_GX_sampled_", gsub("-", "_", group))] <- t_GX
-    out[, paste0("p_GX_sampled_", gsub("-", "_", group))] <- p_GX
+    out[, paste0("beta_GX_", group)] <- beta_GX
+    out[, paste0("se_GX_", group)] <- se_GX
+    out[, paste0("t_GX_", group)] <- t_GX
+    out[, paste0("p_GX_", group)] <- p_GX
+    out[, paste0("Fstat_", group)] <- Fstat
     
-    out[, paste0("beta_GY_sampled_", gsub("-", "_", group))] <- beta_GY
-    out[, paste0("se_GY_sampled_", gsub("-", "_", group))] <- se_GY
-    out[, paste0("t_GY_sampled_", gsub("-", "_", group))] <- t_GY
-    out[, paste0("p_GY_sampled_", gsub("-", "_", group))] <- p_GY
+    out[, paste0("beta_GY_", group)] <- beta_GY
+    out[, paste0("se_GY_", group)] <- se_GY
+    out[, paste0("t_GY_", group)] <- t_GY
+    out[, paste0("p_GY_", group)] <- p_GY
     
-    out[, paste0("beta_XY_sampled_", gsub("-", "_", group))] <- beta_XY
-    out[, paste0("se_XY_sampled_", gsub("-", "_", group))] <- se_XY
-    out[, paste0("z_XY_sampled_", gsub("-", "_", group))] <- z_XY
-    out[, paste0("p_XY_sampled_", gsub("-", "_", group))] <- p_XY
+    out[, paste0("beta_XY_", group)] <- beta_XY
+    out[, paste0("se_XY_", group)] <- se_XY
+    out[, paste0("z_XY_", group)] <- z_XY
+    out[, paste0("p_XY_", group)] <- p_XY
 
   }
 
-  # Step 11: Test XxA interaction among sampled survivors
+  # Step 11: Test XxA interaction among  survivors
   # ___________________________________________________________________
   
-  # Cochran's Q test for interaction:
-  se <- out[, paste0("se_XY_sampled_", gsub("-", "_", ages))]
-  beta <- out[, paste0("beta_XY_sampled_", gsub("-", "_", ages))]
+  ## Assess XxA interaction term (using genetiCcally predicted X)
+  survivors$X_pred <- survivors$G*beta_GX
+  beta_XA_Y <- summary(lm(Y ~ X_pred*A, survivors))$coefficients["X_pred:A",]["Estimate"]
+  se_XA_Y <- summary(lm(Y ~ X_pred*A, survivors))$coefficients["X_pred:A",]["Std. Error"]
+  t_XA_Y <- summary(lm(Y ~ X_pred*A, survivors))$coefficients["X_pred:A",]["t value"]
+  p_XA_Y <- summary(lm(Y ~ X_pred*A, survivors))$coefficients["X_pred:A",]["Pr(>|t|)"]
+  
+  out$beta_XA_Y <- beta_XA_Y
+  out$se_XA_Y <- se_XA_Y
+  out$t_XA_Y <- t_XA_Y
+  out$p_XA_Y <- p_XA_Y
+  
+  # Meta-regression of effect estimates with median stratum age
+  # data <-  data.frame("stratum" = 1:5,
+  #                     "age_mid" = unlist(by(survivors$A, survivors$age_group, median)),
+  #                     "beta" = unlist(out[paste0("beta_XY_survivors_", 1:5)]),
+  #                     "se" = unlist(out[paste0("se_XY_survivors_", 1:5)]))
+  # model_trend <- rma(
+  #   yi = beta, 
+  #   sei = se,
+  #   mods = ~ age_mid,
+  #   data = data,
+  #   method = "REML",
+  #   test = "knha"
+  # )
+  # 
+  # out$beta_meta_regression = model_trend$beta["age_mid",]
+  # out$se_meta_regression = model_trend$se[2]
+  # out$p_meta_regression = model_trend$pval[2]
+  
+  # Cochran's Q test for heterogeneity:
+  se <- out[, paste0("se_XY_survivors_", 1:5)]
+  beta <- out[, paste0("beta_XY_survivors_",1:5)]
   
   if(any(is.na(beta))){
     beta_pooled <- Q <- p_het <- NA
@@ -648,18 +736,17 @@ simulation <- function(main_scenario, main_scenario_val, sub_sce_varying_par, su
   message(paste("Finished simulation for replicate", replicate, "of subscenario:", 
                 main_scenario, main_scenario_val, sub_sce_varying_par, sub_sce_varying_par_value))
   
-  return(out)
+  return(list("out" = out, 
+              "N_survivors" = table(S)["1"], 
+              "mean_p" = mean(probs),
+              "var_G" = as.vector(by(survivors$G, survivors$age_group, var))
+  ))
 }
 
 
 
 # ==============================================================================
 # Run simulation replicates x subscenario: 
-
-## Run for task ID (= subscenario row num)
-id <- commandArgs(trailingOnly = TRUE)[1]
-main <- commandArgs(trailingOnly = TRUE)[2]
-# id = 2
 
 ## Main scenario subscenarios:
 if(main == "scenario.01"){
@@ -671,10 +758,7 @@ if(main == "scenario.01"){
 } else if(main == "scenario.03"){
   ## Scenario 3
   scenarios <- get(load(paste0(input_dir00, "/scenario.03.Rdata")))
-} else if(main == "scenario.04"){
-  ## Scenario 4
-  scenarios <- get(load(paste0(input_dir00, "/scenario.04.Rdata")))
-}
+} 
 
 ## Subscenario pars
 sim_args <- scenarios[id, ]
@@ -689,8 +773,25 @@ out_dir_sc <- paste0(out_dir, "/", sim_args[1], "/", sim_args[2], "/", sim_args[
 ## Run n_rep replicates
 res = vector()
 for(i in 1:n_rep){
-  res = rbind(res, do.call(simulation, c(sim_args, i)))
+  
+  ## Start with 500,000 individuals
+  res_i <- do.call(simulation, c("N" = 500000, sim_args, "replicate" = i))
+  
+  
+  ## Repeat simulation until we get (on average) 200 survivors according to E[p] 
+  ## and genotype variabilty to estimate genetic effects
+ 
+   while(res_i$N_survivors <200 | any(res_i$var_G == 0)){
+    
+    N <- 210/res_i$mean_p 
+    res_i <- do.call(simulation, c("N" = N, sim_args, "replicate" = i))
+    
+  }
+  
+  res = rbind(res, res_i$out)
 }
+
+#   res = rbind(res, do.call(simulation, c(sim_args, i)))
 
 ## Save subscenario results 
 save(res, file = paste0(out_dir_sc, "/subscenario_res_across_", n_rep, "replicates.Rdata"))
