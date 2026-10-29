@@ -22,3 +22,13 @@ rad.json
 #Test results file
 TestResults.xml
 .Rproj.user
+
+01_run_replicates_x_subscenario/outputs/scenario.01/*
+01_run_replicates_x_subscenario/scripts/logs/*
+
+02_summarize_and_plot_results/outputs/scenario.01/*
+02_summarize_and_plot_results/outputs/*
+
+
+
+
