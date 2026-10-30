@@ -36,11 +36,16 @@ gamma_U = -0.1
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 ## Define ranges for varying parameters
-beta_Xs = c(-0.4, -0.2, 0, 0.2, 0.4)
-beta_XAs = c(-0.2, -0.1, 0, 0.1, 0.2)
-gamma_Xs = c(-0.4, -0.3, -0.2, -0.1, 0)
-gamma_As = c(-0.2, -0.1, -0.05)
-gamma_XAs = c(-0.2, -0.1, -0.05)
+
+beta_Xs = c(-0.2, 0, 0.2)
+beta_XAs = c(-0.1, 0, 0.1)
+
+alpha_Us = c(-0.4,-0.2, 0, 0.2, 0.4)
+beta_Us = c(-0.4,-0.2, 0, 0.2, 0.4)
+
+gamma_Us = c(-0.4,-0.2, 0, 0.2, 0.4)
+gamma_Xs = c(-0.4, -0.2, 0, 0.2, 0.4)
+gamma_XAs = c(-0.2,-0.1,0, 0.1, 0.2)
 
 # ==============================================================================
 #         Scenario 1: No exposure effect on the outcome βx = 0, βxA = 0 
@@ -52,100 +57,67 @@ main_scenario_val = ""
 beta_X = 0
 beta_XA = 0
 
-## Sub-scenarios for one varying parameter at a time:
+## Sub-scenarios for confounder effects on X and Y (αu, βu)
 # ______________________________________________________________________________
-#  1. Varying γx = {-0.4,-0.3,-0.2,-0.1,0} 
+#  1. Varying αu = {-0.4,-0.3,-0.2,-0.1,0},  
+#             βu = {-0.4,-0.3,-0.2,-0.1,0} 
 # ______________________________________________________________________________
-sub_sce_varying_par = "gammaX"
+sub_sce_varying_par = "alphaU_betaU"
+
+for(au in alpha_Us){
+  for(bu in beta_Us){
+  scenarios01 <- rbind(scenarios01, c("main_scenario" = main_scenario, "main_scenario_val" = main_scenario_val, 
+                                      "sub_sce_varying_par" = sub_sce_varying_par, "sub_sce_varying_par_value" = paste0("alphaU=", au, ",betaU=", bu), 
+                                      "alpha_G" = alpha_G, "alpha_U" = au, "beta_U" = bu, "beta_A" = beta_A, 
+                                      "beta_X" = beta_X, "beta_XA" = beta_XA, "gamma_0" = gamma_0, "gamma_X" = gamma_X, 
+                                      "gamma_A" = gamma_A, "gamma_XA" = gamma_XA, "gamma_U" = gamma_U)) %>% as.data.frame()
+  }
+}
+## Sub-scenarios for effects on S (γx, γxA, γu)
+# ______________________________________________________________________________
+#  2. Varying γx =  {-0.4, -0.2, 0, 0.2, 0.4},
+#             γxA = {-0.2, -0.1, 0, 0.1, 0.2}, 
+#             γu =  {-0.4, -0.2, 0, 0.2, 0.4}
+# ______________________________________________________________________________
+sub_sce_varying_par = "gammaX_gammaXA_gammaU"
 
 for (gx in gamma_Xs){
-  scenarios01 <- rbind(scenarios01, c("main_scenario" = main_scenario, "main_scenario_val" = main_scenario_val, 
-                                      "sub_sce_varying_par" = sub_sce_varying_par, "sub_sce_varying_par_value" = paste0(sub_sce_varying_par,"=", gx), 
-                                      "alpha_G" = alpha_G, "alpha_U" = alpha_U, "beta_U" = beta_U, "beta_A" = beta_A, 
-                                      "beta_X" = beta_X, "beta_XA" = beta_XA, "gamma_0" = gamma_0, "gamma_X" = gx, 
-                                      "gamma_A" = gamma_A, "gamma_XA" = gamma_XA, "gamma_U" = gamma_U)) %>% as.data.frame()
-}
-# ______________________________________________________________________________
-#  2. Varying γA = {-0.2,-0.1,-0.05}
-# ______________________________________________________________________________
-sub_sce_varying_par = "gammaA"
-
-for (ga in gamma_As){
-  scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, paste0(sub_sce_varying_par,"=", ga), 
-                                      alpha_G, alpha_U, beta_U, beta_A, beta_X, beta_XA, 
-                                      gamma_0, gamma_X, "gamma_A" = ga, gamma_XA, gamma_U)) %>% as.data.frame()
-}
-# __________________________________________________________________________________________________________
-#  3. Varying γxA = {-0.2,-0.1,-0.05}
-# __________________________________________________________________________________________________________
-sub_sce_varying_par = "gammaXA"
-for (gxa in gamma_XAs){
-  scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, paste0(sub_sce_varying_par,"=", gxa), 
-                                      alpha_G, alpha_U, beta_U, beta_A, beta_X, beta_XA, 
-                                      gamma_0, gamma_X, gamma_A, "gamma_XA" = gxa, gamma_U)) %>% as.data.frame()
-}
-
-
-
-#  Sub-scenarios for two varying parameters at a time:  
-# ______________________________________________________________________________________________
-#  4. Varying γx = {-0.4,-0.3,-0.2,-0.1,0},
-#             γA = {-0.2,-0.1,-0.05}
-# ______________________________________________________________________________________________
-sub_sce_varying_par = "gammaX_gammaA"
-for (ga in gamma_As){
-  for (gx in gamma_Xs){
-    scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, paste0("gammaX=", gx, ",gammaA=", ga), 
-                                        alpha_G, alpha_U, beta_U, beta_A, beta_X, beta_XA, 
-                                        gamma_0, "gamma_X" = gx, "gamma_A" = ga, gamma_XA, gamma_U)) %>% as.data.frame()
-  }
-}
-# ______________________________________________________________________________________________
-#  5. Varying γx = {-0.4,-0.3,-0.2,-0.1,0},
-#             γxA = {-0.2,-0.1,-0.05}
-# ______________________________________________________________________________________________
-sub_sce_varying_par = "gammaX_gammaXA"
-
-for (gxa in gamma_XAs){
-  for (gx in gamma_Xs){
-    scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, paste0("gammaX=", gx, ",gammaXA=", gxa), 
-                                        alpha_G, alpha_U, beta_U, beta_A, beta_X, beta_XA, 
-                                        gamma_0, "gamma_X" = gx, gamma_A, "gamma_XA" = gxa, gamma_U)) %>% as.data.frame()
-  }
-}
-
-# ______________________________________________________________________________________________
-#  6. Varying γA = {-0.2,-0.1,-0.05},
-#             γxA = {-0.2,-0.1,-0.05}
-# ______________________________________________________________________________________________
-sub_sce_varying_par = "gammaA_gammaXA"
-
-for (gxa in gamma_XAs){
-  for (ga in gamma_As){
-    scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, paste0("gammaA=", ga, ",gammaXA=", gxa), 
-                                        alpha_G, alpha_U, beta_U, beta_A, beta_X, beta_XA, 
-                                        gamma_0, gamma_X, "gamma_A" = ga, "gamma_XA" = gxa, gamma_U)) %>% as.data.frame()
-  }
-}
-
-
-#  Sub-scenarios for three varying parameters at a time:  
-# ______________________________________________________________________________________________
-#  7. Varying γx = {-0.4,-0.3,-0.2,-0.1,0},
-#             γA = {-0.2,-0.1,-0.05},
-#             γxA = {-0.2,-0.1,-0.05}
-# ______________________________________________________________________________________________
-sub_sce_varying_par = "gammaX_gammaA_gammaXA"
-for(gxa in gamma_XAs){
-  for (ga in gamma_As){
-    for (gx in gamma_Xs){
+  for(gxa in gamma_XAs){
+    for(gu in gamma_Us){
       scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, 
-                                          paste0("gammaX=", gx, ",gammaA=", ga, ",gammaXA=", gxa), 
+                                          paste0("gammaX=", gx, ",gammaXA=", gxa, "gammaU=", gu), 
                                           alpha_G, alpha_U, beta_U, beta_A, beta_X, beta_XA, 
-                                          gamma_0, "gamma_X" = gx, "gamma_A" = ga, "gamma_XA" = gxa, gamma_U)) %>% as.data.frame()
+                                          gamma_0, "gamma_X" = gx, gamma_A, "gamma_XA" = gxa, "gamma_U" = gu)) %>% as.data.frame()
     }
   }
 }
+
+## Sub-scenarios for confounder effects and effects on S (γx, γxA, γu) 
+# __________________________________________________________________________________________________________
+#  3. Varying αu = {-0.4,-0.3,-0.2,-0.1,0},  
+#             βu = {-0.4,-0.3,-0.2,-0.1,0} 
+#             γx =  {-0.4, -0.2, 0, 0.2, 0.4},
+#             γxA = {-0.2, -0.1, 0, 0.1, 0.2}, 
+#             γu =  {-0.4, -0.2, 0, 0.2, 0.4}
+# __________________________________________________________________________________________________________
+
+sub_sce_varying_par = "alphaU_betaU_gammaX_gammaXA_gammaU"
+
+for (gx in gamma_Xs){
+  for(gxa in gamma_XAs){
+    for(gu in gamma_Us){
+      for (au in alpha_Us){
+        for(bu in beta_Us){
+          scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, 
+                                              paste0("alphaU=", au, ",betaU=", bu, "gammaX=", gx, ",gammaXA=", gxa, "gammaU=", gu), 
+                                              alpha_G, au, bu, beta_A, beta_X, beta_XA, 
+                                              gamma_0, gx, gamma_A, gxa, gu)) %>% as.data.frame()
+        }
+      }
+    }
+  }
+}
+
 
 scenarios01[, 5:15] <- apply(scenarios01[, 5:15] , 2, as.numeric)
 save(scenarios01, file = paste0(out_dir, "/scenario.01.Rdata"))
