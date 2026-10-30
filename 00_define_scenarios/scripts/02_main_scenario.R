@@ -26,9 +26,9 @@ scenarios01 <- get(load(paste0(out_dir, "/scenario.01.Rdata"), verbose = T))
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 
 ## Define ranges for varying parameters
-beta_Xs = c(-0.4, -0.2, 0.2, 0.4)
+beta_Xs = c(-0.2, 0.2)
 
-scenarios02 <- scenarios01
+scenarios02 <- vector()
 for(beta_X in beta_Xs){
   
     temp <- scenarios01
