@@ -85,7 +85,7 @@ for (gx in gamma_Xs){
   for(gxa in gamma_XAs){
     for(gu in gamma_Us){
       scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, 
-                                          paste0("gammaX=", gx, ",gammaXA=", gxa, "gammaU=", gu), 
+                                          paste0("gammaX=", gx, ",gammaXA=", gxa, ",gammaU=", gu), 
                                           alpha_G, alpha_U, beta_U, beta_A, beta_X, beta_XA, 
                                           gamma_0, "gamma_X" = gx, gamma_A, "gamma_XA" = gxa, "gamma_U" = gu)) %>% as.data.frame()
     }
@@ -109,7 +109,7 @@ for (gx in gamma_Xs){
       for (au in alpha_Us){
         for(bu in beta_Us){
           scenarios01 <- rbind(scenarios01, c(main_scenario, main_scenario_val, sub_sce_varying_par, 
-                                              paste0("alphaU=", au, ",betaU=", bu, "gammaX=", gx, ",gammaXA=", gxa, "gammaU=", gu), 
+                                              paste0("alphaU=", au, ",betaU=", bu, ",gammaX=", gx, ",gammaXA=", gxa, ",gammaU=", gu), 
                                               alpha_G, au, bu, beta_A, beta_X, beta_XA, 
                                               gamma_0, gx, gamma_A, gxa, gu)) %>% as.data.frame()
         }
